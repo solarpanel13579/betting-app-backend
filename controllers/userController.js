@@ -5,44 +5,79 @@ const Investment = require("../models/Investment")
 const Transaction = require("../models/Transaction");
 
 
-exports.register=async(req,res)=>{
-    const{name,email,phone,password}=req.body;
-    const hashedPassword= await bcrypt.hash(password,10);
-    const user= new User({name,email,phone,password:hashedPassword});
-    await user.save();
-    res.json({message:"User Created"});
+exports.register = async (req, res) => {
+    try {
+        // Destructure with a default empty string if it's missing
+        const { name, email, phone, password, referralCode = "" } = req.body; 
 
+        // Check for existing user first
+        const existingUser = await User.findOne({ email });
+        if (existingUser) return res.status(400).json({ message: "Email already exists" });
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        let initialBalance = 0;
+        let referredByCode = null;
+
+        // Only run referral logic if a code was actually typed in
+        if (referralCode && referralCode.trim() !== "") {
+            const referrer = await User.findOne({ myReferralCode: referralCode.toUpperCase() });
+            if (referrer) {
+                referrer.walletBalance += 100;
+                referrer.referralCount += 1;
+                await referrer.save();
+                
+                initialBalance = 300;
+                referredByCode = referralCode.toUpperCase();
+            }
+        }
+
+        const user = new User({
+            name,
+            email,
+            phone,
+            password: hashedPassword,
+            walletBalance: initialBalance,
+            referredBy: referredByCode
+        });
+
+        await user.save();
+        res.status(201).json({ message: "User Created Successfully" });
+
+    } catch (error) {
+        res.status(500).json({ message: "Server Error", error: error.message });
+    }
 };
 
-exports.login=async(req,res)=>{
-    try{
-        const{email,password}=req.body;
-        const user=await User.findOne({email});
-        if(!user){
-            return res.status(400).json({message:"Invalid Email or Password"});
-        }
-        const isMatch=await bcrypt.compare(password,user.password);
-        if(!isMatch){
-            return res.status(400).json({message:"Invalid Email or Password"});
+exports.login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const user = await User.findOne({ email });
+
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(400).json({ message: "Invalid Email or Password" });
         }
 
-        const token=jwt.sign(
-            {id:user._id},
+        const token = jwt.sign(
+            { id: user._id },
             process.env.JWT_SECRET,
-            {expiresIn: '1d'}
+            { expiresIn: '1d' }
         );
+
         res.json({
             token,
-            user:{
-                id:user._id,
-                name:user.name,
-                email:user.email,
-                walletBalance:user.walletBalance
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                walletBalance: user.walletBalance,
+                myReferralCode: user.myReferralCode, 
+                phone: user.phone
             }
         });
 
-    }catch(error){
-        res.status(500).json({message:"Server Error"})
+    } catch (error) {
+        res.status(500).json({ message: "Server Error" });
     }
 };
 
