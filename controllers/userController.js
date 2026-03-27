@@ -58,11 +58,10 @@ exports.login = async (req, res) => {
             return res.status(400).json({ message: "Invalid Email or Password" });
         }
 
-        const token = jwt.sign(
-            { id: user._id },
-            process.env.JWT_SECRET,
-            { expiresIn: '1d' }
-        );
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+        // Fetch this user's investments too
+        const investments = await Investment.find({ userId: user._id });
 
         res.json({
             token,
@@ -70,16 +69,17 @@ exports.login = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
+                phone: user.phone,
                 walletBalance: user.walletBalance,
-                myReferralCode: user.myReferralCode, 
-                phone: user.phone
+                myReferralCode: user.myReferralCode,
+                investments // ← add this
             }
         });
 
     } catch (error) {
         res.status(500).json({ message: "Server Error" });
     }
-};
+};   
 
 exports.recharge= async(req,res)=>{
     const{userId,amount}=req.body;
@@ -92,7 +92,15 @@ exports.recharge= async(req,res)=>{
 exports.getUserProfile = async (req, res) => {
     try {
         const user = await User.findById(req.params.id).select('-password');
-        res.json(user);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        // Fetch investments separately and attach them
+        const investments = await Investment.find({ userId: req.params.id });
+        
+        const userData = user.toObject();
+        userData.investments = investments;
+
+        res.json(userData);
     } catch (err) {
         res.status(404).json({ message: "User not found" });
     }
